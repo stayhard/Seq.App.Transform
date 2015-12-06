@@ -47,7 +47,13 @@ namespace Seq.App.Transform
             {
                 _timer = new Timer();
                 _timer.Interval = IntervalSeconds * 1000;
-                _timer.Elapsed += (s, e) => Transform();
+                _timer.Elapsed += (s, e) =>
+                {
+                    lock (this)
+                    {
+                        Transform();
+                    }
+                };
                 _timer.Start();
             }
 
@@ -55,7 +61,8 @@ namespace Seq.App.Transform
         
         private void Transform()
         {
-            lock (_window)
+            
+            try
             {
                 if (WindowSeconds > 0)
                 {
@@ -69,31 +76,39 @@ namespace Seq.App.Transform
                     _window.Clear();
                 }
 
-                if (_current == null)
-                {
-                    // Nothing to transform
-                    return;
-                }
-
                 using (var context = new JavascriptContext())
                 {
                     context.SetParameter("aggregate", new Aggregate(_window));
-
-                    foreach (var prop in _current.Properties)
+                    if (_current?.Properties != null)
                     {
-                        context.SetParameter(prop.Key, prop.Value);
+                        foreach (var prop in _current.Properties)
+                        {
+                            context.SetParameter(prop.Key, prop.Value);
+                        }
                     }
+                    context.SetParameter("eventId", _current?.Id);
+                    context.SetParameter("eventLevel", _current?.Level);
+                    context.SetParameter("eventTimestamp", _current?.LocalTimestamp);
+                    context.SetParameter("eventMessage", _current?.RenderedMessage);
 
-                    context.SetParameter("eventId", _current.Id);
-                    context.SetParameter("eventLevel", _current.Level);
-                    context.SetParameter("eventTimestamp", _current.LocalTimestamp);
-                    context.SetParameter("eventMessage", _current.RenderedMessage);
-                    
-                    context.SetParameter("log", new JsLog(Log));
-                    
-                    var res = context.Run(Script);
-                    Log.ForContext("Result", res, true).Information("Js result");
+                    context.SetParameter("__$log", new JsLog(Log));
+
+                    context.Run(@"
+function logTrace(msg, properties) { __$log.Verbose(msg, properties); }
+function logVerbose(msg, properties) { __$log.Verbose(msg, properties); }
+function logDebug(msg, properties) { __$log.Debug(msg, properties); }
+function logInfo(msg, properties) { __$log.Information(msg, properties); }
+function logInformation(msg, properties) { __$log.Information(msg, properties); }
+function logWarn(msg, properties) { __$log.Warning(msg, properties); }
+function logWarning(msg, properties) { __$log.Warning(msg, properties); }
+function logError(msg, properties) { __$log.Error(msg, properties); }
+function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
+" + Script);
                 }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to transform event");
             }
         }
 
@@ -109,59 +124,42 @@ namespace Seq.App.Transform
             private ILogger GetLoggerFor(IDictionary<string, object> properties)
             {
                 var l = _logger;
-                foreach (var prop in properties)
+                if (properties != null)
                 {
-                    l = l.ForContext(prop.Key, prop.Value, true);
+                    foreach (var prop in properties)
+                    {
+                        l = l.ForContext(prop.Key, prop.Value, true);
+                    }
                 }
                 return l;
             }
 
-            public void trace(string message, IDictionary<string, object> properties)
-            {
-                verbose(message, properties);
-            }
-
-            public void verbose(string message, IDictionary<string, object> properties)
+            public void Verbose(string message, IDictionary<string, object> properties)
             {
                 GetLoggerFor(properties).Verbose(message);
             }
 
-            public void debug(string message, IDictionary<string, object> properties)
+            public void Debug(string message, IDictionary<string, object> properties)
             {
                 GetLoggerFor(properties).Debug(message);
             }
 
-            public void info(string message, IDictionary<string, object> properties)
-            {
-                information(message, properties);
-            }
-
-            public void information(string message, IDictionary<string, object> properties)
+            public void Information(string message, IDictionary<string, object> properties)
             {
                 GetLoggerFor(properties).Information(message);
             }
 
-            public void warn(string message, IDictionary<string, object> properties)
-            {
-                warning(message, properties);
-            }
-
-            public void warning(string message, IDictionary<string, object> properties)
+            public void Warning(string message, IDictionary<string, object> properties)
             {
                 GetLoggerFor(properties).Warning(message);
             }
 
-            public void err(string message, IDictionary<string, object> properties)
-            {
-                error(message, properties);
-            }
-
-            public void error(string message, IDictionary<string, object> properties)
+            public void Error(string message, IDictionary<string, object> properties)
             {
                 GetLoggerFor(properties).Error(message);
             }
 
-            public void fatal(string message, IDictionary<string, object> properties)
+            public void Fatal(string message, IDictionary<string, object> properties)
             {
                 GetLoggerFor(properties).Fatal(message);
             }
@@ -178,7 +176,7 @@ namespace Seq.App.Transform
 
             public decimal length
             {
-                get { return 0; }
+                get { return _data.Count(); }
             }
 
             public decimal sum(string property)
@@ -204,15 +202,15 @@ namespace Seq.App.Transform
 
         public void On(Event<LogEventData> evt)
         {
-            lock (_window)
+            lock (this)
             {
                 _window.Enqueue(evt.Data);
-            }
-            _current = evt.Data;
+                _current = evt.Data;
 
-            if (IntervalSeconds <= 0)
-            {
-                Transform();
+                if (IntervalSeconds <= 0)
+                {
+                    Transform();
+                }
             }
         }
         
