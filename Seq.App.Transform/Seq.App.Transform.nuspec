@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package >
+  <metadata>
+    <id>Seq.App.Transform</id>
+    <version>$version$</version>
+    <authors>Kristoffer Jansson</authors>
+    <owners>Kristoffer Jansson</owners>
+    <licenseUrl>http://opensource.org/licenses/MIT</licenseUrl>
+    <projectUrl>https://github.com/stayhard/Seq.App.Transform</projectUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>$description$</description>
+    <releaseNotes>See https://github.com/stayhard/Seq.App.Transform for changes.</releaseNotes>
+    <copyright>Copyright Stayhard AB 2015</copyright>
+    <tags>seq-app seq serilog event transform javascript</tags>
+  </metadata>
+  <files>
+    <file src="bin\$configuration$\Seq.App.Transform.dll" target="lib\net45" />
+    <file src="bin\$configuration$\Seq.App.Transform.pdb" target="lib\net45" />
+    <file src="bin\$configuration$\Noesis.Javascript.dll" target="lib\net45" />
+    <file src="bin\$configuration$\amd64\Microsoft.VC100.CRT\*.dll" target="lib\net45\amd64\Microsoft.VC100.CRT" />
+    <file src="bin\$configuration$\x86\Microsoft.VC100.CRT\*.dll" target="lib\net45\x86\Microsoft.VC100.CRT" />
+  </files>
+</package>
