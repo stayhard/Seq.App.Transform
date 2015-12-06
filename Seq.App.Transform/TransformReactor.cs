@@ -179,24 +179,29 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
                 get { return _data.Count(); }
             }
 
+            private IEnumerable<decimal> SelectDecimal(string property)
+            {
+                return _data.Select(r => r.Properties.ContainsKey(property) ? Convert.ToDecimal(r.Properties[property]) : 0);
+            }
+
             public decimal sum(string property)
             {
-                return 0;
+                return SelectDecimal(property).Sum();
             }
 
             public decimal max(string property)
             {
-                return 0;
+                return SelectDecimal(property).Max();
             }
 
             public decimal min(string property)
             {
-                return 0;
+                return SelectDecimal(property).Min();
             }
 
             public decimal avg(string property)
             {
-                return 0;
+                return SelectDecimal(property).Average();
             }
         }
 
