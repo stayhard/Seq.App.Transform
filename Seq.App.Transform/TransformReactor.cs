@@ -25,7 +25,7 @@ namespace Seq.App.Transform
         public int WindowSeconds { get; set; }
 
         [SeqAppSetting(
-            DisplayName = "Aggregation - Interval (seconds)",
+            DisplayName = "Interval (seconds)",
             IsOptional = true,
             HelpText = "How often the script will run. Set to 0 to run on each received event.")]
         public int IntervalSeconds { get; set; }
@@ -90,6 +90,7 @@ namespace Seq.App.Transform
                     context.SetParameter("eventLevel", _current?.Level);
                     context.SetParameter("eventTimestamp", _current?.LocalTimestamp);
                     context.SetParameter("eventMessage", _current?.RenderedMessage);
+
 
                     context.SetParameter("__$log", new JsLog(Log));
 
