@@ -175,7 +175,7 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
 
             private IEnumerable<decimal> SelectDecimal(string property)
             {
-                return _data.Where(r => r.LocalTimestamp > DateTime.Now.AddSeconds(-_windowSeconds)).Select(r => r.Properties.ContainsKey(property) ? Convert.ToDecimal(r.Properties[property]) : 0);
+                return _data.Where(r => r.LocalTimestamp >= DateTime.Now.AddSeconds(-_windowSeconds)).Select(r => r.Properties.ContainsKey(property) ? Convert.ToDecimal(r.Properties[property]) : 0);
             }
 
             public decimal sum(string property)
