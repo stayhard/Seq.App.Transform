@@ -69,7 +69,7 @@ namespace Seq.App.Transform
 
                 using (var context = new JavascriptContext())
                 {
-                    context.SetParameter("aggregate", new Aggregate(window));
+                    context.SetParameter("aggregate", new Aggregate(window, WindowSeconds));
                     if (_current?.Properties != null)
                     {
                         foreach (var prop in _current.Properties)
@@ -160,10 +160,12 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
         private class Aggregate
         {
             private readonly IList<LogEventData> _data;
+            private readonly int _windowSeconds;
 
-            public Aggregate(IList<LogEventData> data)
+            public Aggregate(IList<LogEventData> data, int windowSeconds)
             {
                 _data = data;
+                _windowSeconds = windowSeconds;
             }
 
             public decimal length
@@ -173,7 +175,7 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
 
             private IEnumerable<decimal> SelectDecimal(string property)
             {
-                return _data.Select(r => r.Properties.ContainsKey(property) ? Convert.ToDecimal(r.Properties[property]) : 0);
+                return _data.Where(r => r.LocalTimestamp > DateTime.Now.AddSeconds(-_windowSeconds)).Select(r => r.Properties.ContainsKey(property) ? Convert.ToDecimal(r.Properties[property]) : 0);
             }
 
             public decimal sum(string property)
