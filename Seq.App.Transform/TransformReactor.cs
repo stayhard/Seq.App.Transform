@@ -64,21 +64,12 @@ namespace Seq.App.Transform
             
             try
             {
-                if (WindowSeconds > 0)
-                {
-                    while (_window.Count > 0 && _window.Peek().LocalTimestamp < DateTime.Now.AddSeconds(-WindowSeconds))
-                    {
-                        _window.Dequeue();
-                    }
-                }
-                else
-                {
-                    _window.Clear();
-                }
+
+                var window = _window.ToList();
 
                 using (var context = new JavascriptContext())
                 {
-                    context.SetParameter("aggregate", new Aggregate(_window));
+                    context.SetParameter("aggregate", new Aggregate(window));
                     if (_current?.Properties != null)
                     {
                         foreach (var prop in _current.Properties)
@@ -168,9 +159,9 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
 
         private class Aggregate
         {
-            private readonly IEnumerable<LogEventData> _data;
+            private readonly IList<LogEventData> _data;
 
-            public Aggregate(IEnumerable<LogEventData> data)
+            public Aggregate(IList<LogEventData> data)
             {
                 _data = data;
             }
@@ -208,15 +199,21 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
 
         public void On(Event<LogEventData> evt)
         {
-            lock (this)
+            if (WindowSeconds > 0)
             {
                 _window.Enqueue(evt.Data);
-                _current = evt.Data;
 
-                if (IntervalSeconds <= 0)
+                while (_window.Count > 0 && _window.Peek().LocalTimestamp < DateTime.Now.AddSeconds(-WindowSeconds))
                 {
-                    Transform();
+                    _window.Dequeue();
                 }
+            }
+            
+            _current = evt.Data;
+
+            if (IntervalSeconds <= 0)
+            {
+                Transform();
             }
         }
         
