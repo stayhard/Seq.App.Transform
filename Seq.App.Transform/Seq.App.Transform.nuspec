@@ -7,7 +7,7 @@
     <owners>Kristoffer Jansson</owners>
     <licenseUrl>http://opensource.org/licenses/MIT</licenseUrl>
     <projectUrl>https://github.com/stayhard/Seq.App.Transform</projectUrl>
-    <iconUrl>http://example.com/placeholder.png</iconUrl>
+    <iconUrl>https://raw.githubusercontent.com/stayhard/Seq.App.Transform/master/package-icon.png</iconUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <description>$description$</description>
     <releaseNotes>See https://github.com/stayhard/Seq.App.Transform for changes.</releaseNotes>
