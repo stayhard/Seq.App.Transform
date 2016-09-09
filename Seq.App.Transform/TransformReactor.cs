@@ -1,8 +1,10 @@
-﻿using Noesis.Javascript;
+﻿using Jurassic;
+using Jurassic.Library;
 using Seq.Apps;
 using Seq.Apps.LogEvents;
 using Serilog;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -18,6 +20,7 @@ namespace Seq.App.Transform
         private Queue<LogEventData> _window;
         private LogEventData _current;
         private Timer _timer;
+        private ConcurrentDictionary<string, bool> _incidents = new ConcurrentDictionary<string, bool>();
 
         [SeqAppSetting(
             DisplayName = "Aggregation - Window (seconds)",
@@ -61,42 +64,72 @@ namespace Seq.App.Transform
         
         private void Transform()
         {
-            
             try
             {
 
                 var window = _window.Where(r => r.LocalTimestamp >= DateTime.Now.AddSeconds(-WindowSeconds)).ToList();
 
-                using (var context = new JavascriptContext())
+                var engine = new Jurassic.ScriptEngine();
+
+                engine.SetGlobalValue("aggregate", new Aggregate(engine, window));
+                if (_current?.Properties != null)
                 {
-                    context.SetParameter("aggregate", new Aggregate(window));
-                    if (_current?.Properties != null)
+                    foreach (var prop in _current.Properties)
                     {
-                        foreach (var prop in _current.Properties)
-                        {
-                            context.SetParameter(prop.Key, prop.Value);
-                        }
+                        engine.SetGlobalValue(prop.Key, prop.Value);
                     }
-                    context.SetParameter("eventId", _current?.Id);
-                    context.SetParameter("eventLevel", _current?.Level);
-                    context.SetParameter("eventTimestamp", _current?.LocalTimestamp);
-                    context.SetParameter("eventMessage", _current?.RenderedMessage);
-
-
-                    context.SetParameter("__$log", new JsLog(Log));
-
-                    context.Run(@"
-function logTrace(msg, properties) { __$log.Verbose(msg, properties); }
-function logVerbose(msg, properties) { __$log.Verbose(msg, properties); }
-function logDebug(msg, properties) { __$log.Debug(msg, properties); }
-function logInfo(msg, properties) { __$log.Information(msg, properties); }
-function logInformation(msg, properties) { __$log.Information(msg, properties); }
-function logWarn(msg, properties) { __$log.Warning(msg, properties); }
-function logWarning(msg, properties) { __$log.Warning(msg, properties); }
-function logError(msg, properties) { __$log.Error(msg, properties); }
-function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
-" + Script);
                 }
+
+                if (_current != null)
+                {
+                    engine.SetGlobalValue("eventId", _current.Id);
+                    engine.SetGlobalValue("eventLevel", _current.Level);
+                
+                    engine.SetGlobalValue("eventTimestamp",
+                        engine.Date.Construct(
+                            _current.LocalTimestamp.Year,
+                            _current.LocalTimestamp.Month,
+                            _current.LocalTimestamp.Day,
+                            _current.LocalTimestamp.Hour,
+                            _current.LocalTimestamp.Minute,
+                            _current.LocalTimestamp.Second,
+                            _current.LocalTimestamp.Millisecond));
+                    engine.SetGlobalValue("eventMessage", _current.RenderedMessage);
+                }
+
+                var verbose = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Verbose(a.Value));
+                var debug = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Debug(a.Value));
+                var information = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Information(a.Value));
+                var warning = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Warning(a.Value));
+                var error = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Error(a.Value));
+                var fatal = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Fatal(a.Value));
+
+                engine.SetGlobalFunction("logTrace", verbose);
+                engine.SetGlobalFunction("logVerbose", verbose);
+                engine.SetGlobalFunction("logDebug", debug);
+                engine.SetGlobalFunction("logInfo", information);
+                engine.SetGlobalFunction("logInformation", information);
+                engine.SetGlobalFunction("logWarn", warning);
+                engine.SetGlobalFunction("logWarning", warning);
+                engine.SetGlobalFunction("logError", error);
+                engine.SetGlobalFunction("logFatal", fatal);
+
+                engine.SetGlobalFunction("openIncident", new Action<StringInstance>(name =>
+                {
+                    if (_incidents.TryAdd(name.Value, true) || _incidents.TryUpdate(name.Value, true, false))
+                    {
+                        Log.ForContext("IncidentState", "Open").Error("[ Incident Open ] {IncidentName}", name);
+                    }
+                }));
+                engine.SetGlobalFunction("closeIncident", new Action<StringInstance>(name =>
+                {
+                    if (_incidents.TryAdd(name.Value, false) || _incidents.TryUpdate(name.Value, false, true))
+                    {
+                        Log.ForContext("IncidentState", "Closed").Information("[ Incident Closed ] {IncidentName}", name);
+                    }
+                }));
+
+                engine.Evaluate(Script);
             }
             catch (Exception ex)
             {
@@ -104,13 +137,28 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
             }
         }
 
+        private ILogger GetLoggerFor(object properties)
+        {
+            var l = Log;
+            if (properties != null && properties is ObjectInstance)
+            {
+                foreach (var prop in ((ObjectInstance)properties).Properties)
+                {
+                    l = l.ForContext(prop.Name, prop.Value, true);
+                }
+            }
+            return l;
+        }
+
         private class JsLog
         {
             private readonly ILogger _logger;
+            private readonly IDictionary<string, bool> _incidents;
 
-            public JsLog(ILogger logger)
+            public JsLog(ILogger logger, IDictionary<string, bool> incidents)
             {
                 _logger = logger;
+                _incidents = incidents;
             }
 
             private ILogger GetLoggerFor(IDictionary<string, object> properties)
@@ -155,14 +203,38 @@ function logFatal(msg, properties) { __$log.Fatal(msg, properties); }
             {
                 GetLoggerFor(properties).Fatal(message);
             }
+
+            public void OpenIncident(string name)
+            {
+                //var current = _incidents.GetOrAdd(name, false);
+
+                //if (!current)
+                //{
+                //    _incidents.TryUpdate(name, true, true);
+                //}
+
+                //_logger.ForContext("IncidentState", "Open").Error("[ Incident Open ] {IncidentName}", name);
+            }
+            public void CloseIncident(string name)
+            {
+                //var current = _incidents.GetOrAdd(name, false);
+
+                //if (current)
+                //{
+                //    _incidents.TryUpdate(name, false, false);
+                //    _logger.ForContext("IncidentState", "Closed").Information("[ Incident Closed ] {IncidentName}", name);
+                //}
+            }
         }
 
-        private class Aggregate
+        private class Aggregate : ObjectInstance
         {
             private readonly IList<LogEventData> _data;
 
-            public Aggregate(IList<LogEventData> data)
+            public Aggregate(ScriptEngine engine, IList<LogEventData> data)
+                : base(engine)
             {
+                PopulateFunctions();
                 _data = data;
             }
 

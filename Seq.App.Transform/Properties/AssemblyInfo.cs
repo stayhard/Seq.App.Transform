@@ -6,11 +6,11 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("Seq.App.Transform")]
-[assembly: AssemblyDescription("Collects events and allows a javascript to transform them into different events written back to the log.")]
+[assembly: AssemblyDescription("Collects events and allows a javascript to transform them into different events written back to the log. This package supports Seq 3.3+. Install the 1.x version of this package for compatibility with earlier versions of Seq.")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("Stayhard")]
+[assembly: AssemblyCompany("Stayhard AB")]
 [assembly: AssemblyProduct("Seq.App.Transform")]
-[assembly: AssemblyCopyright("Copyright © Stayhard 2015")]
+[assembly: AssemblyCopyright("Copyright © Stayhard 2015-2016")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -32,6 +32,6 @@ using System.Runtime.InteropServices;
 // You can specify all the values or you can default the Build and Revision Numbers 
 // by using the '*' as shown below:
 // [assembly: AssemblyVersion("1.0.*")]
-[assembly: AssemblyVersion("1.0.3.0")]
-[assembly: AssemblyFileVersion("1.0.3.0")]
-[assembly: AssemblyInformationalVersion("1.0.3")]
+[assembly: AssemblyVersion("2.0.0.0")]
+[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyInformationalVersion("2.0.0")]
