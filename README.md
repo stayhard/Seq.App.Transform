@@ -39,10 +39,8 @@ The standard properties are:
 Usage example:
 
 ```javascript
-var lastMessage= last.$Message;
+var lastMessage = last.$Message;
 ```
-
-The above script would put the value of the event property *SomeValue* in a variable called *prop*.
 
 ### Writing events
 
