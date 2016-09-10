@@ -22,8 +22,8 @@ namespace Seq.App.Transform
         private ConcurrentDictionary<string, bool> _incidents = new ConcurrentDictionary<string, bool>();
 
         [SeqAppSetting(
-            DisplayName = "Aggregation - Window (seconds)",
-            HelpText = "The number of seconds within which the events will be collected and sent to transform script. Set to 0 to only collect the last event.")]
+            DisplayName = "Window (seconds)",
+            HelpText = "The number of seconds within which the events will be collected and available through aggregate functions. Set to 0 to only collect the last event.")]
         public int WindowSeconds { get; set; }
 
         [SeqAppSetting(
@@ -36,7 +36,7 @@ namespace Seq.App.Transform
             DisplayName = "Script (Javascript)",
             IsOptional = false,
             InputType = SettingInputType.LongText,
-            HelpText = "The script for transforming the events.")]
+            HelpText = "The script for transforming the events. Documentation can be found here: https://github.com/stayhard/Seq.App.Transform")]
         public string Script { get; set; }
 
         protected override void OnAttached()
@@ -130,6 +130,7 @@ namespace Seq.App.Transform
                 }
                 
                 engine.SetGlobalValue("all", new Aggregator(engine, properties, r => r));
+                engine.SetGlobalValue("count", new Aggregator(engine, properties, r => r.Length));
                 engine.SetGlobalValue("first", new Aggregator(engine, properties, r => r.ElementValues.FirstOrDefault()));
                 engine.SetGlobalValue("last", new Aggregator(engine, properties, r => r.ElementValues.LastOrDefault()));
                 engine.SetGlobalValue("max", new Aggregator(engine, properties, r =>
@@ -175,6 +176,21 @@ namespace Seq.App.Transform
                     }
 
                     return sum / count;
+                }));
+
+                engine.SetGlobalValue("sum", new Aggregator(engine, properties, r =>
+                {
+                    double sum = 0;
+                    foreach (var v in r.Properties.Select(p => p.Value))
+                    {
+                        var d = ToDouble(v);
+                        if (d != null)
+                        {
+                            sum += (double)d;
+                        }
+                    }
+
+                    return sum;
                 }));
 
                 var verbose = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Verbose(a.Value));

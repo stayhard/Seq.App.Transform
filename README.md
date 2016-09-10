@@ -3,7 +3,7 @@ Collects events and allows a javascript to transform them into different events 
 
 ## Features
 
-- Quickly transform any event using javascript, 1-1 or 1-n
+- Quickly transform any event using javascript
 - Calculate rolling averages, min/max or sums over a period of time
 - Emit events at a specific interval
 - Combine with other apps, such as Slack or e-mail notifications to build intelligent alerts
@@ -12,19 +12,34 @@ Collects events and allows a javascript to transform them into different events 
 
 By default, the javascript code in the **Script** field is executed on each received event, but it may be triggered at a set interval instead by using the **Interval** field.
 
-The script can access information about the current event, or last received event in case you're using the **Interval** setting. There are standard properties, always available, and there are the event properties/data. They are all variables in the global scope, so they are easy to access.
+The script can access information and properties about events in the aggregation window, or last received event if set to window size is set to 0.
+
+Data is accessed through a few global objects that is used similarly. Each of these objects holds the properties of all events in the window but aggregates the data in different ways.
+
+The global objects are:
+
+- **all** - All the values of the property in an array
+- **count** - The number of values of all events in window
+- **first** - The value of the property of the first event in window
+- **last** - The value of the property of the last event in window
+- **min** - Lowest numerical property value of all events in window
+- **min** - Highest numerical property value of all events in window
+- **mean** - Calculated numerical mean of values in window
+- **sum** - Calculated sum of values in window
+
+On each of the global objects you can find all the properties of all events in the window. There are also standard properties, always available.
 
 The standard properties are:
 
-- **eventId** - The ID of the event
-- **eventLevel** - The logging level of the event
-- **eventTimestamp** - The timestamp of when the event was emitted
-- **eventMessage** - The rendered message of the event
+- **$Id** - The ID of the event
+- **$Level** - The logging level of the event
+- **$Timestamp** - The timestamp of when the event was emitted
+- **$Message** - The rendered message of the event
 
-Apart from the standard fields you can access the event properties by just referencing them by name:
+Usage example:
 
 ```javascript
-var prop = SomeValue;
+var lastMessage= last.$Message;
 ```
 
 The above script would put the value of the event property *SomeValue* in a variable called *prop*.
@@ -42,17 +57,20 @@ The following methods are available for writing events:
 
 Message is a string that may contain Serilog style placeholders (see examples below). Properties is an object that contains event properties, which may or may not appear in the message.
 
-### Aggregation
+### Incident Handling
 
-It's possible to get aggregated numeric data by setting the **Aggregation - Window** field. By setting this, the script can use the global *aggregate* object to access information about the collected events.
+In order to simplify writing smart alerts and incident tracking, there are two global functions that can be used:
 
-*aggregate* provides the following functions and fields:
+- openIncident(*&lt;name&gt;*)
+- closeIncident(*&lt;name&gt;*)
 
-- **length** - The number of events in the aggregate
-- **sum("*****&lt;property name&gt;*****")** - If the specified property is numerical, calculates the sum of all values
-- **avg("*****&lt;property name&gt;*****")** - If the specified property is numerical, calculates the average value
-- **max("*****&lt;property name&gt;*****")** - If the specified property is numerical, gives you the highest number of the values
-- **min("*****&lt;property name&gt;*****")** - If the specified property is numerical, gives you the lowest number of the values
+An app can open and close multiple incidents indepentent of each other by using a different _name_ value. The app will only write to the event log when the state changes (from closed to open and vice versa).
+
+You can easily list the status of current incidents using the following query in Seq:
+
+```sql
+select last(IncidentState) as State, ToIsoString(last(@Timestamp)) as Timestamp from stream where length(IncidentName) > 0 group by IncidentName
+```
 
 ### Examples
 
@@ -67,7 +85,7 @@ In order to calculate the number of errors per minute:
 
 // Script:
 
-logInfo("Number of errors last minute: {Errors}", {Errors: aggregate.length});
+logInfo("Number of errors last minute: {Errors}", {Errors: count.$Id});
 ```
 
 Emit an event if the 5-minute rolling average of a timestamp exceeds a given number:
@@ -81,8 +99,8 @@ Emit an event if the 5-minute rolling average of a timestamp exceeds a given num
 // Script:
 
 // Assuming that there's a property called elapsed with a millisecond value in it
-var avg = aggregate.avg("Elapsed")
-if (avg > 100) {
-    logWarn("Time for operation is unusually high {Average}", {Average:avg});
+var mean = mean.Elapsed
+if (mean > 100) {
+    logWarn("Time for operation is unusually high {Average}", {Average:mean});
 }
 ```
