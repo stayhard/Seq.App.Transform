@@ -18,7 +18,6 @@ namespace Seq.App.Transform
     public class TransformReactor : Reactor, ISubscribeTo<LogEventData>
     {
         private Queue<LogEventData> _window;
-        private LogEventData _current;
         private Timer _timer;
         private ConcurrentDictionary<string, bool> _incidents = new ConcurrentDictionary<string, bool>();
 
@@ -62,40 +61,121 @@ namespace Seq.App.Transform
 
         }
         
+        private static double? ToDouble(object v)
+        {
+            if (v is NumberInstance)
+            {
+                return ((NumberInstance)v).Value;
+            }
+            else if (v is double)
+            {
+                return (double)v;
+            }
+            else if (v is decimal)
+            {
+                return (double)(decimal)v;
+            }
+            else if (v is long)
+            {
+                return (long)v;
+            }
+            return null;
+        }
+
         private void Transform()
         {
             try
             {
+                List<LogEventData> window;
 
-                var window = _window.Where(r => r.LocalTimestamp >= DateTime.Now.AddSeconds(-WindowSeconds)).ToList();
-
-                var engine = new Jurassic.ScriptEngine();
-
-                engine.SetGlobalValue("aggregate", new Aggregate(engine, window));
-                if (_current?.Properties != null)
+                if (WindowSeconds > 0)
                 {
-                    foreach (var prop in _current.Properties)
+                    window = _window.Where(r => r.LocalTimestamp >= DateTime.Now.AddSeconds(-WindowSeconds)).ToList();
+                }
+                else
+                {
+                    window = new List<LogEventData>();
+                }
+
+                if (WindowSeconds <= 0 && _window.Any())
+                {
+                    window.Add(_window.Last());
+                }
+
+                var engine = new ScriptEngine();
+                engine.EnableExposedClrTypes = true;
+
+                var properties = new Dictionary<string, ArrayInstance>
+                {
+                    { "$Id", engine.Array.Construct() },
+                    { "$Level", engine.Array.Construct() },
+                    { "$Timestamp", engine.Array.Construct() },
+                    { "$Message", engine.Array.Construct() },
+                };
+                foreach (var e in window)
+                {
+                    properties["$Id"].Push(e.Id);
+                    properties["$Level"].Push(e.Level);
+                    properties["$Timestamp"].Push(e.LocalTimestamp);
+                    properties["$Message"].Push(e.RenderedMessage);
+
+                    foreach (var p in e.Properties)
                     {
-                        engine.SetGlobalValue(prop.Key, prop.Value);
+                        if (!properties.ContainsKey(p.Key))
+                        {
+                            properties.Add(p.Key, engine.Array.Construct());
+                        }
+                        properties[p.Key].Push(p.Value);
                     }
                 }
-
-                if (_current != null)
-                {
-                    engine.SetGlobalValue("eventId", _current.Id);
-                    engine.SetGlobalValue("eventLevel", _current.Level);
                 
-                    engine.SetGlobalValue("eventTimestamp",
-                        engine.Date.Construct(
-                            _current.LocalTimestamp.Year,
-                            _current.LocalTimestamp.Month,
-                            _current.LocalTimestamp.Day,
-                            _current.LocalTimestamp.Hour,
-                            _current.LocalTimestamp.Minute,
-                            _current.LocalTimestamp.Second,
-                            _current.LocalTimestamp.Millisecond));
-                    engine.SetGlobalValue("eventMessage", _current.RenderedMessage);
-                }
+                engine.SetGlobalValue("all", new Aggregator(engine, properties, r => r));
+                engine.SetGlobalValue("first", new Aggregator(engine, properties, r => r.ElementValues.FirstOrDefault()));
+                engine.SetGlobalValue("last", new Aggregator(engine, properties, r => r.ElementValues.LastOrDefault()));
+                engine.SetGlobalValue("max", new Aggregator(engine, properties, r =>
+                {
+                    double? result = null;
+                    foreach (var v in r.Properties.Select(p => p.Value))
+                    {
+                        var d = ToDouble(v);
+                        if (d != null && result == null || result < d)
+                        {
+                            result = d;
+                        }
+                    }
+                    return result;
+                }));
+
+                engine.SetGlobalValue("min", new Aggregator(engine, properties, r =>
+                {
+                    double? result = null;
+                    foreach (var v in r.Properties.Select(p => p.Value))
+                    {
+                        var d = ToDouble(v);
+                        if (d != null && result == null || d < result)
+                        {
+                            result = d;
+                        }
+                    }
+                    return result;
+                }));
+
+                engine.SetGlobalValue("mean", new Aggregator(engine, properties, r =>
+                {
+                    double sum = 0;
+                    int count = 0;
+                    foreach (var v in r.Properties.Select(p => p.Value))
+                    {
+                        var d = ToDouble(v);
+                        if (d != null)
+                        {
+                            sum += (double)d;
+                            count += 1;
+                        }
+                    }
+
+                    return sum / count;
+                }));
 
                 var verbose = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Verbose(a.Value));
                 var debug = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Debug(a.Value));
@@ -103,7 +183,7 @@ namespace Seq.App.Transform
                 var warning = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Warning(a.Value));
                 var error = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Error(a.Value));
                 var fatal = new Action<StringInstance, object>((a, b) => GetLoggerFor(b).Fatal(a.Value));
-
+                
                 engine.SetGlobalFunction("logTrace", verbose);
                 engine.SetGlobalFunction("logVerbose", verbose);
                 engine.SetGlobalFunction("logDebug", debug);
@@ -128,13 +208,51 @@ namespace Seq.App.Transform
                         Log.ForContext("IncidentState", "Closed").Information("[ Incident Closed ] {IncidentName}", name);
                     }
                 }));
-
+                
                 engine.Evaluate(Script);
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "Failed to transform event");
             }
+        }
+
+        private class Aggregator : ObjectInstance
+        {
+            private readonly IDictionary<string, ArrayInstance> _properties;
+            private readonly Func<ArrayInstance, object> _func;
+
+            public Aggregator(ScriptEngine engine, IDictionary<string, ArrayInstance> properties, Func<ArrayInstance, object> func) : base(engine)
+            {
+                _properties = properties;
+                _func = func;
+            }
+
+            protected override object GetMissingPropertyValue(string propertyName)
+            {
+                if (!_properties.ContainsKey(propertyName))
+                {
+                    _properties.Add(propertyName, Engine.Array.Construct());
+                }
+                return _func(_properties[propertyName]);
+            }
+        }
+
+        private static object ToClrType(object v)
+        {
+            if (v is ArrayInstance)
+            {
+                return ((ArrayInstance)v).ElementValues.Select(ToClrType).ToList();
+            }
+            if (v is ClrInstanceWrapper)
+            {
+                return ((ClrInstanceWrapper)v).WrappedInstance;
+            }
+            if (v is ObjectInstance)
+            {
+                return ((ObjectInstance)v).Properties.ToDictionary(r => r.Name, r => ToClrType(r.Value));
+            }
+            return v;
         }
 
         private ILogger GetLoggerFor(object properties)
@@ -144,87 +262,10 @@ namespace Seq.App.Transform
             {
                 foreach (var prop in ((ObjectInstance)properties).Properties)
                 {
-                    l = l.ForContext(prop.Name, prop.Value, true);
+                    l = l.ForContext(prop.Name, ToClrType(prop.Value), true);
                 }
             }
             return l;
-        }
-
-        private class JsLog
-        {
-            private readonly ILogger _logger;
-            private readonly IDictionary<string, bool> _incidents;
-
-            public JsLog(ILogger logger, IDictionary<string, bool> incidents)
-            {
-                _logger = logger;
-                _incidents = incidents;
-            }
-
-            private ILogger GetLoggerFor(IDictionary<string, object> properties)
-            {
-                var l = _logger;
-                if (properties != null)
-                {
-                    foreach (var prop in properties)
-                    {
-                        l = l.ForContext(prop.Key, prop.Value, true);
-                    }
-                }
-                return l;
-            }
-
-            public void Verbose(string message, IDictionary<string, object> properties)
-            {
-                GetLoggerFor(properties).Verbose(message);
-            }
-
-            public void Debug(string message, IDictionary<string, object> properties)
-            {
-                GetLoggerFor(properties).Debug(message);
-            }
-
-            public void Information(string message, IDictionary<string, object> properties)
-            {
-                GetLoggerFor(properties).Information(message);
-            }
-
-            public void Warning(string message, IDictionary<string, object> properties)
-            {
-                GetLoggerFor(properties).Warning(message);
-            }
-
-            public void Error(string message, IDictionary<string, object> properties)
-            {
-                GetLoggerFor(properties).Error(message);
-            }
-
-            public void Fatal(string message, IDictionary<string, object> properties)
-            {
-                GetLoggerFor(properties).Fatal(message);
-            }
-
-            public void OpenIncident(string name)
-            {
-                //var current = _incidents.GetOrAdd(name, false);
-
-                //if (!current)
-                //{
-                //    _incidents.TryUpdate(name, true, true);
-                //}
-
-                //_logger.ForContext("IncidentState", "Open").Error("[ Incident Open ] {IncidentName}", name);
-            }
-            public void CloseIncident(string name)
-            {
-                //var current = _incidents.GetOrAdd(name, false);
-
-                //if (current)
-                //{
-                //    _incidents.TryUpdate(name, false, false);
-                //    _logger.ForContext("IncidentState", "Closed").Information("[ Incident Closed ] {IncidentName}", name);
-                //}
-            }
         }
 
         private class Aggregate : ObjectInstance
@@ -271,21 +312,27 @@ namespace Seq.App.Transform
 
         public void On(Event<LogEventData> evt)
         {
-            if (WindowSeconds > 0)
+            lock (this)
             {
-                _window.Enqueue(evt.Data);
-
-                while (_window.Count > 0 && _window.Peek().LocalTimestamp < DateTime.Now.AddSeconds(-WindowSeconds))
+                if (WindowSeconds > 0)
                 {
-                    _window.Dequeue();
-                }
-            }
-            
-            _current = evt.Data;
+                    _window.Enqueue(evt.Data);
 
-            if (IntervalSeconds <= 0)
-            {
-                Transform();
+                    while (_window.Count > 0 && _window.Peek().LocalTimestamp < DateTime.Now.AddSeconds(-WindowSeconds))
+                    {
+                        _window.Dequeue();
+                    }
+                }
+                else
+                {
+                    _window.Clear();
+                    _window.Enqueue(evt.Data);
+                }
+
+                if (IntervalSeconds <= 0)
+                {
+                    Transform();
+                }
             }
         }
         
