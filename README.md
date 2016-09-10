@@ -66,7 +66,7 @@ In order to simplify writing smart alerts and incident tracking, there are two g
 
 An app can open and close multiple incidents indepentent of each other by using a different _name_ value. The app will only write to the event log when the state changes (from closed to open and vice versa).
 
-You can easily list the status of current incidents using the following query in Seq:
+You can easily list the status of incidents using the following query in Seq:
 
 ```sql
 select last(IncidentState) as State, ToIsoString(last(@Timestamp)) as Timestamp from stream where length(IncidentName) > 0 group by IncidentName
@@ -88,7 +88,7 @@ In order to calculate the number of errors per minute:
 logInfo("Number of errors last minute: {Errors}", {Errors: count.$Id});
 ```
 
-Emit an event if the 5-minute rolling average of a timestamp exceeds a given number:
+Open an incident if the 5-minute rolling average of a timestamp exceeds a given number:
 
 ```javascript
 /*
@@ -99,8 +99,10 @@ Emit an event if the 5-minute rolling average of a timestamp exceeds a given num
 // Script:
 
 // Assuming that there's a property called elapsed with a millisecond value in it
-var mean = mean.Elapsed
-if (mean > 100) {
-    logWarn("Time for operation is unusually high {Average}", {Average:mean});
+var incidentName = "mean.Elapsed > 100";
+if (mean.Elapsed > 100) {
+    openIncident(incidentName);
+} else {
+	closeIncident(incidentName);
 }
 ```
