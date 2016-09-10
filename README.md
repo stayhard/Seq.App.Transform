@@ -79,7 +79,7 @@ In order to calculate the number of errors per minute:
 ```javascript
 /*
  * Signal: Only errors
- * Aggregation - Window: 60
+ * Window: 60
  * Interval: 60 
  */
 
@@ -92,7 +92,7 @@ Open an incident if the 5-minute rolling average of a timestamp exceeds a given 
 
 ```javascript
 /*
- * Aggregation - Window: 300
+ * Window: 300
  * Interval: 0
  */
 
