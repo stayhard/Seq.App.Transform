@@ -23,7 +23,7 @@ The global objects are:
 - **first** - The value of the property of the first event in window
 - **last** - The value of the property of the last event in window
 - **min** - Lowest numerical property value of all events in window
-- **min** - Highest numerical property value of all events in window
+- **max** - Highest numerical property value of all events in window
 - **mean** - Calculated numerical mean of values in window
 - **sum** - Calculated sum of values in window
 
