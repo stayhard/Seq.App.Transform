@@ -82,6 +82,18 @@ namespace Seq.App.Transform
             return null;
         }
 
+        /// <summary>
+        /// Jurassic can't handle decimals for some reason, so we cast them all to doubles.
+        /// </summary>
+        /// <param name="v"></param>
+        /// <returns></returns>
+        private static object FixDecimal(object v)
+        {
+            if (v is decimal)
+                return (double)(decimal)v;
+            return v;
+        }
+
         private void Transform()
         {
             try
@@ -125,7 +137,7 @@ namespace Seq.App.Transform
                         {
                             properties.Add(p.Key, engine.Array.Construct());
                         }
-                        properties[p.Key].Push(p.Value);
+                        properties[p.Key].Push(FixDecimal(p.Value));
                     }
                 }
                 
@@ -136,7 +148,7 @@ namespace Seq.App.Transform
                 engine.SetGlobalValue("max", new Aggregator(engine, properties, r =>
                 {
                     double? result = null;
-                    foreach (var v in r.Properties.Select(p => p.Value))
+                    foreach (var v in r.ElementValues)
                     {
                         var d = ToDouble(v);
                         if (d != null && result == null || result < d)
@@ -150,7 +162,7 @@ namespace Seq.App.Transform
                 engine.SetGlobalValue("min", new Aggregator(engine, properties, r =>
                 {
                     double? result = null;
-                    foreach (var v in r.Properties.Select(p => p.Value))
+                    foreach (var v in r.ElementValues)
                     {
                         var d = ToDouble(v);
                         if (d != null && result == null || d < result)
@@ -165,7 +177,7 @@ namespace Seq.App.Transform
                 {
                     double sum = 0;
                     int count = 0;
-                    foreach (var v in r.Properties.Select(p => p.Value))
+                    foreach (var v in r.ElementValues)
                     {
                         var d = ToDouble(v);
                         if (d != null)
@@ -181,7 +193,7 @@ namespace Seq.App.Transform
                 engine.SetGlobalValue("sum", new Aggregator(engine, properties, r =>
                 {
                     double sum = 0;
-                    foreach (var v in r.Properties.Select(p => p.Value))
+                    foreach (var v in r.ElementValues)
                     {
                         var d = ToDouble(v);
                         if (d != null)
@@ -219,7 +231,11 @@ namespace Seq.App.Transform
                 }));
                 engine.SetGlobalFunction("closeIncident", new Action<StringInstance>(name =>
                 {
-                    if (_incidents.TryAdd(name.Value, false) || _incidents.TryUpdate(name.Value, false, true))
+                    if (!_incidents.ContainsKey(name.Value))
+                    {
+                        _incidents.TryAdd(name.Value, false);
+                    }
+                    if (_incidents.TryUpdate(name.Value, false, true))
                     {
                         Log.ForContext("IncidentState", "Closed").Information("[ Incident Closed ] {IncidentName}", name);
                     }
