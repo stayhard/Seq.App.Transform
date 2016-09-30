@@ -156,7 +156,9 @@ namespace Seq.App.Transform
                             result = d;
                         }
                     }
-                    return result;
+                    if (result != null)
+                        return result;
+                    return "-";
                 }));
 
                 engine.SetGlobalValue("min", new Aggregator(engine, properties, r =>
@@ -170,7 +172,9 @@ namespace Seq.App.Transform
                             result = d;
                         }
                     }
-                    return result;
+                    if (result != null)
+                        return (double)result;
+                    return "-";
                 }));
 
                 engine.SetGlobalValue("mean", new Aggregator(engine, properties, r =>
